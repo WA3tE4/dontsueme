@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GROK MARIO v2.0</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #5C94FC;
+            font-family: 'Press Start 2P', Arial, sans-serif;
+            touch-action: none;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            image-rendering: pixelated;
+            border-bottom: 4px solid #000;
+        }
+        .controls {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 20px 15px;
+            box-sizing: border-box;
+            pointer-events: none;
+            z-index: 100;
+        }
+        .dpad {
+            display: grid;
+            grid-template-columns: 55px 55px 55px;
+            grid-template-rows: 55px 55px 55px;
+            gap: 6px;
+            pointer-events: auto;
+        }
+        .btn {
+            background: rgba(255,255,255,0.25);
+            border: 4px solid rgba(255,255,255,0.85);
+            border-radius: 12px;
+            color: white;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.4);
+            transition: transform 0.05s;
+        }
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 rgba(0,0,0,0.4);
+        }
+        .jump-btn {
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
+            font-size: 20px;
+            font-weight: bold;
+            background: rgba(255, 80, 80, 0.45);
+            border: 6px solid rgba(255,255,255,0.9);
+            pointer-events: auto;
+            box-shadow: 0 8px 0 rgba(0,0,0,0.4);
+        }
+        .jump-btn:active {
+            transform: scale(0.95);
+        }
+        .hud {
+            position: absolute;
+            top: 12px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            color: white;
+            font-size: 18px;
+            text-shadow: 3px 3px 0 #000;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .title {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #FF0;
+            font-size: 22px;
+            text-shadow: 3px 3px 0 #000;
+            z-index: 10;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="title">GROK MARIO</div>
+    <div class="hud">
+        <div>SCORE <span id="score">000000</span></div>
+        <div>COINS <span id="coins">00</span></div>
+    </div>
+    <canvas id="game" width="960" height="480"></canvas>
+
+    <div class="controls">
+        <div class="dpad">
+            <div></div>
+            <div class="btn" id="up">↑</div>
+            <div></div>
+            <div class="btn" id="left">←</div>
+            <div></div>
+            <div class="btn" id="right">→</div>
+            <div></div>
+            <div></div>
+            <div></div>
+        </div>
+        <div class="jump-btn" id="jump">A</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const coinsEl = document.getElementById('coins');
+
+        let cameraX = 0;
+        let score = 0;
+        let coinCount = 0;
+        let gameOver = false;
+        let won = false;
+        let gameStarted = false;
+
+        // Player
+        const player = {
+            x: 120,
+            y: 300,
+            vx: 0,
+            vy: 0,
+            width: 34,
+            height: 48,
+            onGround: false,
+            facingRight: true,
+            power: 1,
+            frame: 0,
+            animTimer: 0,
+            dead: false
+        };
+
+        const GRAVITY = 0.85;
+        const MOVE_SPEED = 5.5;
+        const JUMP_FORCE = -17.5;
+        const FRICTION = 0.82;
+
+        // Platforms
+        let platforms = [
+            {x: 0, y: 400, w: 2800, h: 80},
+            {x: 320, y: 320, w: 160, h: 20},
+            {x: 580, y: 240, w: 140, h: 20},
+            {x: 820, y: 340, w: 200, h: 20},
+            {x: 1150, y: 210, w: 110, h: 20},
+            {x: 1380, y: 290, w: 220, h: 20},
+            {x: 1720, y: 190, w: 90, h: 20},
+            {x: 1950, y: 330, w: 160, h: 20},
+            {x: 2250, y: 260, w: 130, h: 20},
+        ];
+
+        // Question boxes
+        let boxes = [
+            {x: 420, y: 240, w: 44, h: 44, hit: false, type: 'coin', bounce: 0},
+            {x: 680, y: 170, w: 44, h: 44, hit: false, type: 'mushroom', bounce: 0},
+            {x: 980, y: 150, w: 44, h: 44, hit: false, type: 'coin', bounce: 0},
+            {x: 1450, y: 220, w: 44, h: 44, hit: false, type: 'coin', bounce: 0},
+            {x: 2100, y: 190, w: 44, h: 44, hit: false, type: 'coin', bounce: 0},
+        ];
+
+        // Enemies
+        let enemies = [
+            {x: 520, y: 360, vx: -2.2, width: 36, height: 34, alive: true, frame: 0},
+            {x: 880, y: 360, vx: -1.8, width: 36, height: 34, alive: true, frame: 0},
+            {x: 1280, y: 360, vx: -2.4, width: 36, height: 34, alive: true, frame: 0},
+            {x: 1780, y: 360, vx: -1.9, width: 36, height: 34, alive: true, frame: 0},
+        ];
+
+        let particles = [];
+        let floatingTexts = [];
+
+        let keys = {};
+        let touchLeft = false, touchRight = false, touchJump = false;
+
+        function resizeCanvas() {
+            const maxW = window.innerWidth;
+            const maxH = window.innerHeight - 200;
+            const ratio = 960 / 480;
+            let w = maxW;
+            let h = w / ratio;
+            if (h > maxH) { h = maxH; w = h * ratio; }
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${h}px`;
+        }
+
+        function createParticle(x, y, color, size = 8) {
+            particles.push({x, y, vx: Math.random()*6-3, vy: Math.random()*-9-3, life: 35, color, size});
+        }
+
+        function createFloatingText(x, y, text, color = '#FF0') {
+            floatingTexts.push({x, y, vy: -2, life: 45, text, color});
+        }
+
+        function rectCollide(a, b) {
+            return a.x < b.x + b.w && a.x + a.width > b.x &&
+                   a.y < b.y + b.h && a.y + a.height > b.y;
+        }
+
+        function setupControls() {
+            window.addEventListener('keydown', e => { 
+                keys[e.key.toLowerCase()] = true; 
+                if (e.key === ' ' && player.onGround) touchJump = true;
+            });
+            window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+            // Touch
+            ['left','right','jump'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('touchstart', ev => { ev.preventDefault(); 
+                    if (id==='left') touchLeft=true; 
+                    if (id==='right') touchRight=true; 
+                    if (id==='jump') touchJump=true; 
+                });
+                el.addEventListener('touchend', () => {
+                    if (id==='left') touchLeft=false; 
+                    if (id==='right') touchRight=false; 
+                    if (id==='jump') touchJump=false; 
+                });
+                // Mouse support
+                el.addEventListener('mousedown', () => {
+                    if (id==='left') touchLeft=true; 
+                    if (id==='right') touchRight=true; 
+                    if (id==='jump') touchJump=true; 
+                });
+                el.addEventListener('mouseup', () => {
+                    if (id==='left') touchLeft=false; 
+                    if (id==='right') touchRight=false; 
+                    if (id==='jump') touchJump=false; 
+                });
+            });
+        }
+
+        function update() {
+            if (!gameStarted || gameOver || won) return;
+
+            // Input
+            let move = 0;
+            if (keys['arrowleft'] || keys['a'] || touchLeft) move = -1;
+            if (keys['arrowright'] || keys['d'] || touchRight) move = 1;
+
+            player.vx = player.vx * FRICTION + move * MOVE_SPEED * 0.6;
+            if (Math.abs(player.vx) > MOVE_SPEED) player.vx = Math.sign(player.vx) * MOVE_SPEED;
+
+            if ((keys[' '] || keys['w'] || keys['arrowup'] || touchJump) && player.onGround) {
+                player.vy = JUMP_FORCE;
+                player.onGround = false;
+                touchJump = false;
+            }
+
+            player.vy += GRAVITY;
+            player.x += player.vx;
+            player.y += player.vy;
+
+            player.onGround = false;
+
+            // Platform collisions
+            for (let p of platforms) {
+                if (rectCollide(player, {x: p.x, y: p.y, w: p.w, h: p.h})) {
+                    if (player.vy > 0 && player.y + player.height - player.vy <= p.y + 8) {
+                        player.y = p.y - player.height;
+                        player.vy = 0;
+                        player.onGround = true;
+                    } else if (player.vy < 0) {
+                        player.y = p.y + p.h;
+                        player.vy = 1;
+                    } else if (player.vx > 0) {
+                        player.x = p.x - player.width;
+                    } else if (player.vx < 0) {
+                        player.x = p.x + p.w;
+                    }
+                }
+            }
+
+            // Boxes
+            for (let i = 0; i < boxes.length; i++) {
+                const b = boxes[i];
+                if (b.hit) continue;
+                const boxRect = {x: b.x, y: b.y + b.bounce, w: b.w, h: b.h};
+                
+                if (rectCollide(player, boxRect)) {
+                    if (player.vy < 0 && player.y > b.y) {
+                        // Hit from below
+                        b.hit = true;
+                        b.bounce = -12;
+                        
+                        if (b.type === 'mushroom') {
+                            player.power = 2;
+                            score += 800;
+                            createFloatingText(b.x + 20, b.y - 20, "MUSHROOM!", "#0F0");
+                        } else {
+                            coinCount++;
+                            score += 200;
+                            createParticle(b.x + 22, b.y - 10, '#FF0', 12);
+                            createFloatingText(b.x + 22, b.y - 30, "200", "#FF0");
+                        }
+                    } else {
+                        // Side bump
+                        if (player.vx > 0) player.x = b.x - player.width;
+                        if (player.vx < 0) player.x = b.x + b.w;
+                        player.vx = 0;
+                    }
+                }
+                
+                if (b.bounce < 0) b.bounce += 2;
+                else b.bounce = 0;
+            }
+
+            // Enemies
+            for (let e of enemies) {
+                if (!e.alive) continue;
+                e.x += e.vx;
+                e.frame = (e.frame + 0.15) % 2;
+
+                // Simple turn around
+                if (e.x < 200 || e.x > 2550) e.vx *= -1;
+
+                // Collision with player
+                if (rectCollide(player, e)) {
+                    if (player.vy > 3 && player.y + player.height * 0.6 < e.y + 10) {
+                        // Stomp
+                        e.alive = false;
+                        player.vy = -14;
+                        score += 400;
+                        createFloatingText(e.x + 18, e.y - 10, "400", "#FF0");
+                        for (let i = 0; i < 8; i++) createParticle(e.x + 18, e.y + 20, '#8B4513');
+                    } else {
+                        // Damage
+                        if (player.power > 1) {
+                            player.power = 1;
+                            player.vx = -player.vx * 4;
+                            createFloatingText(player.x + 20, player.y - 20, "OUCH!", "#F80");
+                        } else {
+                            player.dead = true;
+                            gameOver = true;
+                        }
+                    }
+                }
+            }
+
+            // Camera
+            cameraX = Math.max(0, Math.min(player.x - 380, 2550 - 960));
+
+            // Bounds
+            if (player.y > 580) {
+                player.dead = true;
+                gameOver = true;
+            }
+            if (player.x > 2580) {
+                won = true;
+            }
+
+            // Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.45;
+                p.life--;
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+
+            // Floating texts
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const t = floatingTexts[i];
+                t.y += t.vy;
+                t.vy *= 0.96;
+                t.life--;
+                if (t.life <= 0) floatingTexts.splice(i, 1);
+            }
+
+            // Animation
+            player.animTimer++;
+            if (Math.abs(player.vx) > 1.5) player.frame = (player.frame + 0.2) % 3;
+            else player.frame = 0;
+
+            scoreEl.textContent = String(Math.floor(score)).padStart(6, '0');
+            coinsEl.textContent = String(coinCount).padStart(2, '0');
+        }
+
+        function drawBackground() {
+            // Sky
+            const grad = ctx.createLinearGradient(0, 0, 0, 480);
+            grad.addColorStop(0, '#5C94FC');
+            grad.addColorStop(1, '#A4D8FF');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Clouds
+            ctx.fillStyle = '#FFF';
+            const cloudOffset = cameraX * 0.2;
+            for (let i = 0; i < 5; i++) {
+                const cx = ((i * 380) - cloudOffset % 1900) % 1900 - 100;
+                ctx.globalAlpha = 0.9;
+                ctx.beginPath();
+                ctx.ellipse(cx + 80, 90, 70, 35, 0, 0, Math.PI*2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(cx + 120, 75, 55, 32, 0, 0, Math.PI*2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground();
+
+            const offset = cameraX;
+
+            // Platforms
+            ctx.fillStyle = '#0B6B0B';
+            for (let p of platforms) {
+                ctx.fillRect(p.x - offset, p.y, p.w, p.h);
+                ctx.fillStyle = '#0A9A0A';
+                ctx.fillRect(p.x - offset, p.y - 10, p.w, 10);
+                ctx.fillStyle = '#0B6B0B';
+            }
+
+            // Boxes
+            for (let b of boxes) {
+                const bx = b.x - offset;
+                const by = b.y + b.bounce;
+                ctx.fillStyle = b.hit ? '#666' : '#E8B923';
+                ctx.fillRect(bx, by, b.w, b.h);
+                ctx.fillStyle = b.hit ? '#444' : '#C88';
+                ctx.fillRect(bx + 6, by + 6, b.w - 12, b.h - 12);
+                if (!b.hit) {
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = 'bold 28px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('?', bx + 22, by + 34);
+                }
+            }
+
+            // Enemies
+            for (let e of enemies) {
+                if (!e.alive) continue;
+                const ex = e.x - offset;
+                const bob = Math.sin(e.frame * 3) * 2;
+                
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(ex + 4, e.y + 10 + bob, e.width - 8, e.height - 12);
+                ctx.fillStyle = '#A0522D';
+                ctx.fillRect(ex + 6, e.y + bob, e.width - 12, 22);
+                
+                // Eyes
+                ctx.fillStyle = '#FFF';
+                ctx.fillRect(ex + 10, e.y + 10 + bob, 8, 10);
+                ctx.fillRect(ex + 22, e.y + 10 + bob, 8, 10);
+                ctx.fillStyle = '#111';
+                ctx.fillRect(ex + 13, e.y + 12 + bob, 4, 6);
+                ctx.fillRect(ex + 25, e.y + 12 + bob, 4, 6);
+            }
+
+            // Player
+            const px = player.x - offset;
+            const py = player.y;
+            const pFrame = Math.floor(player.frame);
+            
+            if (player.power === 2) {
+                // Big Mario
+                ctx.fillStyle = '#E11'; // overalls
+                ctx.fillRect(px + 6, py + 18, 24, 30);
+                ctx.fillStyle = '#F66'; // shirt
+                ctx.fillRect(px + 8, py + 8, 20, 16);
+                ctx.fillStyle = '#222';
+                ctx.fillRect(px + 8, py + 26, 20, 6); // belt
+            } else {
+                ctx.fillStyle = '#E11';
+                ctx.fillRect(px + 8, py + 18, 20, 26);
+                ctx.fillStyle = '#F66';
+                ctx.fillRect(px + 10, py + 12, 16, 12);
+            }
+            
+            // Hat
+            ctx.fillStyle = '#E11';
+            ctx.fillRect(px + 5, py + 6, 24, 12);
+            ctx.fillStyle = '#FFF';
+            ctx.fillRect(px + 11, py + 10, 10, 4);
+            
+            // Face
+            ctx.fillStyle = '#FDB';
+            ctx.fillRect(px + 14, py + 18, 10, 10);
+            
+            // Eye
+            ctx.fillStyle = '#111';
+            ctx.fillRect(px + 18 + (player.facingRight ? 2 : -2), py + 21, 4, 4);
+
+            // Particles
+            for (let p of particles) {
+                ctx.globalAlpha = p.life / 35;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x - offset, p.y, p.size, p.size);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Floating text
+            ctx.textAlign = 'center';
+            for (let t of floatingTexts) {
+                ctx.globalAlpha = t.life / 45;
+                ctx.fillStyle = t.color;
+                ctx.font = 'bold 18px Arial';
+                ctx.fillText(t.text, t.x - offset, t.y);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Castle & Flag
+            ctx.fillStyle = '#555';
+            ctx.fillRect(2620 - offset, 240, 160, 170);
+            ctx.fillRect(2600 - offset, 200, 40, 50);
+            ctx.fillRect(2730 - offset, 200, 40, 50);
+            
+            ctx.fillStyle = '#CCC';
+            ctx.fillRect(2690 - offset, 110, 10, 260);
+            ctx.fillStyle = '#F33';
+            ctx.beginPath();
+            ctx.moveTo(2700 - offset, 120);
+            ctx.lineTo(2670 - offset, 155);
+            ctx.lineTo(2700 - offset, 190);
+            ctx.fill();
+
+            // Win / Lose overlays
+            if (won) {
+                ctx.fillStyle = 'rgba(0,0,0,0.75)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#FF0';
+                ctx.font = 'bold 42px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.fillText('STAGE CLEAR!', canvas.width/2, 200);
+                ctx.font = '22px Arial';
+                ctx.fillStyle = '#FFF';
+                ctx.fillText(`SCORE ${Math.floor(score)}   COINS ${coinCount}`, canvas.width/2, 270);
+            }
+            
+            if (gameOver) {
+                ctx.fillStyle = 'rgba(0,0,0,0.85)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#F33';
+                ctx.font = 'bold 48px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', canvas.width/2, 210);
+                ctx.font = '18px Arial';
+                ctx.fillStyle = '#AAA';
+                ctx.fillText('Refresh page to try again', canvas.width/2, 280);
+            }
+
+            if (!gameStarted) {
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#FF0';
+                ctx.font = 'bold 36px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.fillText('PRESS ANY KEY', canvas.width/2, 220);
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Init
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        setupControls();
+        
+        // Start trigger
+        window.addEventListener('keydown', () => { if (!gameStarted) gameStarted = true; }, {once: true});
+        window.addEventListener('touchstart', () => { if (!gameStarted) gameStarted = true; }, {once: true});
+
+        gameLoop();
+    </script>
+</body>
+</html>
