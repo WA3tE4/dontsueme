@@ -1,11 +1,5 @@
-# dontsueme
+#Grokario
 
-soooooooo.....
+Remake of everyones favortie classic
 
-i gave grok 2 chances too remake your's truly.
-this is the current result. please dont sue me.
-
-i might update this later on this week.
-assets were all made by grok using math it looks like?
-
-Wa3te4
+main goal of this was too put Grok too the test.
